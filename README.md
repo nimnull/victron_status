@@ -17,6 +17,9 @@ This firmware transforms the Waveshare ESP32-S3-Touch-AMOLED-2.41 into a dedicat
 - **Visual Status Dashboard**: LED indicators for WiFi, MQTT, and grid connection states
 - **Thread-Safe Architecture**: FreeRTOS-based with proper mutex protection for LVGL
 - **Dark Theme UI**: AMOLED-optimized interface with true blacks for power efficiency
+- **Screen Power Management**: Auto-off after 15s inactivity, wake on touch or grid status change
+- **Modular Architecture**: Clean separation of display, touch, LVGL port, and application logic
+- **Secure Credentials**: Sensitive values stored in gitignored `secrets.txt` file
 
 ### Architecture
 
@@ -24,14 +27,20 @@ This firmware transforms the Waveshare ESP32-S3-Touch-AMOLED-2.41 into a dedicat
 ┌─────────────────────────────────────────────────────────────┐
 │                    Application Layer                         │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │  ui_status   │  │ victron_mqtt │  │ victron_data │      │
-│  │   (LVGL)     │  │  (ESP-MQTT)  │  │   (Models)   │      │
+│  │ app_victron  │  │  ui_status   │  │ victron_data │      │
+│  │  (Main App)  │  │   (LVGL UI)  │  │   (Models)   │      │
+│  └──────────────┘  └──────────────┘  └──────────────┘      │
+├─────────────────────────────────────────────────────────────┤
+│                    Service Layer                             │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│  │ victron_mqtt │  │screen_timeout│  │network_manager│     │
+│  │  (ESP-MQTT)  │  │(Power Mgmt)  │  │   (WiFi)     │      │
 │  └──────────────┘  └──────────────┘  └──────────────┘      │
 ├─────────────────────────────────────────────────────────────┤
 │                    Platform Layer                            │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │   Display    │  │    Touch     │  │   Network    │      │
-│  │   SH8601     │  │   FT6336U    │  │    WiFi      │      │
+│  │display_driver│  │ touch_driver │  │  lvgl_port   │      │
+│  │   (SH8601)   │  │  (FT6336U)   │  │(Tick/Mutex)  │      │
 │  └──────────────┘  └──────────────┘  └──────────────┘      │
 ├─────────────────────────────────────────────────────────────┤
 │                    ESP-IDF v6.1.0                            │
@@ -102,19 +111,24 @@ cd /path/to/project
 # Configure target
 idf.py set-target esp32s3
 
-# Configure WiFi and MQTT settings
-idf.py menuconfig
-# Navigate to: Victron MQTT Configuration
-#   - Set WiFi SSID and Password
-#   - Configure System 1: MQTT URL, System ID, Display Name
-#   - Configure System 2: MQTT URL, System ID, Display Name
+# Configure credentials (required)
+cp main/secrets.txt.example main/secrets.txt
+# Edit main/secrets.txt with your WiFi and MQTT credentials:
+#   WIFI_SSID=your_network_name
+#   WIFI_PASSWORD=your_password
+#   MQTT_BROKER_URL_1=mqtt://192.168.x.x:1883
+#   VICTRON_SYSTEM_ID_1=your_portal_id
+#   MQTT_BROKER_URL_2=mqtt://192.168.x.x:1883
+#   VICTRON_SYSTEM_ID_2=your_portal_id
 
-# Build
+# Build (secrets are loaded automatically)
 idf.py build
 
 # Flash
 idf.py -p /dev/ttyUSB0 flash monitor
 ```
+
+> **Note**: The `secrets.txt` file is gitignored. For menuconfig options like system names, use `idf.py menuconfig` → "Victron MQTT Configuration".
 
 ### Configuration Options
 
@@ -136,11 +150,18 @@ Access via `idf.py menuconfig` → "Victron MQTT Configuration":
 
 ```
 ├── main/
-│   ├── hello_world_main.c    # Application entry, display & touch init
+│   ├── app_main.c            # Application entry point (~70 lines)
+│   ├── app_victron.c/h       # Victron application logic (WiFi, MQTT, UI init)
+│   ├── display_driver.c/h    # SH8601 AMOLED driver (QSPI, LVGL integration)
+│   ├── touch_driver.c/h      # FT6336U touch driver (I2C, input device)
+│   ├── lvgl_port.c/h         # LVGL runtime (tick timer, mutex, task)
+│   ├── screen_timeout.c/h    # Screen power management (auto-off, wake)
 │   ├── network_manager.c/h   # WiFi connection management
 │   ├── victron_mqtt.c/h      # MQTT client for Victron GX devices
 │   ├── victron_data.c/h      # Data models and thread-safe storage
 │   ├── ui_status.c/h         # LVGL status dashboard
+│   ├── secrets.txt           # Credentials (gitignored)
+│   ├── secrets.txt.example   # Credentials template
 │   ├── Kconfig.projbuild     # User-configurable options
 │   └── idf_component.yml     # Component dependencies
 ├── managed_components/       # ESP-IDF component manager dependencies
@@ -148,11 +169,11 @@ Access via `idf.py menuconfig` → "Victron MQTT Configuration":
 │   ├── espressif__esp_lcd_touch_ft5x06/
 │   ├── espressif__mqtt/
 │   └── lvgl__lvgl/
-├── CMakeLists.txt           # Build configuration
-├── sdkconfig.defaults       # Project-specific SDK defaults
-├── sdkconfig                # SDK configuration (generated)
-├── partitions.csv           # Flash partition table
-└── CLAUDE.md                # Development guidelines
+├── CMakeLists.txt            # Build config (includes secrets parsing)
+├── sdkconfig.defaults        # Project-specific SDK defaults
+├── sdkconfig.defaults.secrets # Auto-generated from secrets.txt (gitignored)
+├── partitions.csv            # Flash partition table
+└── CLAUDE.md                 # Development guidelines
 ```
 
 ## Hardware Configuration
@@ -244,27 +265,48 @@ Managed via ESP-IDF Component Manager (`idf_component.yml`):
 
 | Task | Priority | Stack | Purpose |
 |------|----------|-------|---------|
-| LVGL Port | 2 | 8KB | UI rendering loop |
+| LVGL Port | 2 | 8KB | UI rendering, screen timeout checks |
 | MQTT Client | 5 | 4KB | Network communication |
+| Main | 1 | 4KB | Status monitoring loop |
 
 ### Thread Safety
 
-LVGL operations are protected by a mutex:
+LVGL operations are protected by a mutex via `lvgl_port`:
 ```c
-if (example_lvgl_lock(timeout_ms)) {
+#include "lvgl_port.h"
+
+if (lvgl_port_lock(timeout_ms)) {
     // Safe to call LVGL APIs
-    example_lvgl_unlock();
+    lvgl_port_unlock();
 }
+```
+
+### Screen Power Management
+
+The screen automatically turns off after 15 seconds of touch inactivity:
+```c
+#include "screen_timeout.h"
+
+// Wake screen programmatically (e.g., on grid status change)
+screen_timeout_wake();
+
+// Check if screen is currently on
+if (screen_timeout_is_on()) { ... }
 ```
 
 ## Roadmap
 
-### Phase 1: Foundation (Current)
+### Phase 1: Foundation ✅ Complete
 - [x] Display initialization with LVGL 9.4
 - [x] Touch input handling
 - [x] WiFi connection management
 - [x] Multi-system MQTT client
 - [x] Basic status dashboard
+- [x] Modular code architecture (display/touch/lvgl_port drivers)
+- [x] Screen timeout with auto-off (15s inactivity)
+- [x] Wake on touch (first touch consumed for wake)
+- [x] Wake on grid status change (connected ↔ disconnected)
+- [x] Secure credentials management (gitignored secrets.txt)
 
 ### Phase 2: Enhanced Monitoring
 - [ ] Battery voltage/SOC display
