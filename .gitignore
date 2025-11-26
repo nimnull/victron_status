@@ -1,3 +1,11 @@
+.cache
+.claude
+.serena
+.vscode
+.clangd
+*.old
+build
+managed_components
 # Prerequisites
 *.d
 
