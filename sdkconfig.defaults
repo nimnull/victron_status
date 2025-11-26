@@ -1,0 +1,328 @@
+# =============================================================================
+# Victron Multi-System Monitor - ESP-IDF Configuration Defaults
+# Target: Waveshare ESP32-S3-Touch-AMOLED-2.41
+# =============================================================================
+#
+# IMPORTANT: Sensitive credentials are loaded from sdkconfig.defaults.secrets
+# which is auto-generated from main/secrets.txt at build time.
+# Copy main/secrets.txt.example to main/secrets.txt and fill in your values.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Target and Flash Configuration
+# Hardware: 16MB Flash (QIO mode), 8MB PSRAM (Octal)
+# Note: This board uses standard QIO flash, NOT Octal flash
+# -----------------------------------------------------------------------------
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_HEADER_FLASHSIZE_UPDATE=y
+# Do NOT enable Octal flash - causes MSPI timing failure on this board
+# CONFIG_ESPTOOLPY_OCT_FLASH is not set
+# CONFIG_ESPTOOLPY_FLASH_SAMPLE_MODE_DTR is not set
+
+# Chip revision (ESP32-S3 Rev 2+)
+CONFIG_ESP32S3_REV_MIN_2=y
+
+# -----------------------------------------------------------------------------
+# CPU Configuration
+# Dual-core Xtensa LX7 @ 240MHz for smooth LVGL rendering
+# -----------------------------------------------------------------------------
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=240
+
+# -----------------------------------------------------------------------------
+# PSRAM Configuration (8MB Octal PSRAM)
+# Critical for LVGL buffers and MQTT message handling
+# -----------------------------------------------------------------------------
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_TYPE_AUTO=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_BOOT_INIT=y
+CONFIG_SPIRAM_USE_MALLOC=y
+# Allocations >= 16KB go to PSRAM automatically
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=16384
+# Reserve 64KB internal RAM for WiFi and critical allocations
+CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=65536
+# Allow tasks to use external memory for stacks (useful for LVGL)
+CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y
+# Allow WiFi/LWIP to use PSRAM when beneficial
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+
+# -----------------------------------------------------------------------------
+# Cache Configuration (Optimized for display rendering)
+# Larger data cache improves LVGL performance
+# -----------------------------------------------------------------------------
+CONFIG_ESP32S3_INSTRUCTION_CACHE_16KB=y
+CONFIG_ESP32S3_INSTRUCTION_CACHE_8WAYS=y
+CONFIG_ESP32S3_INSTRUCTION_CACHE_LINE_32B=y
+CONFIG_ESP32S3_DATA_CACHE_32KB=y
+CONFIG_ESP32S3_DATA_CACHE_8WAYS=y
+CONFIG_ESP32S3_DATA_CACHE_LINE_32B=y
+
+# -----------------------------------------------------------------------------
+# Partition Table
+# Custom partition with larger app space for LVGL assets
+# -----------------------------------------------------------------------------
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# -----------------------------------------------------------------------------
+# Performance Optimization
+# Prioritize speed for smooth 60fps AMOLED rendering
+# -----------------------------------------------------------------------------
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_BOOTLOADER_COMPILER_OPTIMIZATION_PERF=y
+CONFIG_MBEDTLS_COMPILER_OPTIMIZATION_PERF=y
+
+# Stack checking (normal mode - good balance of safety/performance)
+CONFIG_COMPILER_STACK_CHECK_MODE_NORM=y
+
+# -----------------------------------------------------------------------------
+# FreeRTOS Configuration
+# 1000Hz tick for responsive touch and smooth animations
+# -----------------------------------------------------------------------------
+CONFIG_FREERTOS_HZ=1000
+CONFIG_FREERTOS_CHECK_STACKOVERFLOW_CANARY=y
+CONFIG_FREERTOS_IDLE_TASK_STACKSIZE=1536
+CONFIG_FREERTOS_ISR_STACKSIZE=1536
+CONFIG_FREERTOS_USE_TIMERS=y
+CONFIG_FREERTOS_TIMER_TASK_STACK_DEPTH=2048
+
+# Dual-core utilization
+CONFIG_FREERTOS_NUMBER_OF_CORES=2
+
+# -----------------------------------------------------------------------------
+# WiFi Configuration
+# Optimized for MQTT reliability and reduced memory footprint
+# -----------------------------------------------------------------------------
+# Reduced buffer counts to free internal SRAM for WiFi stack
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=6
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=16
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER=y
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=16
+CONFIG_ESP_WIFI_AMPDU_TX_ENABLED=y
+CONFIG_ESP_WIFI_AMPDU_RX_ENABLED=y
+CONFIG_ESP_WIFI_TX_BA_WIN=6
+CONFIG_ESP_WIFI_RX_BA_WIN=6
+CONFIG_ESP_WIFI_NVS_ENABLED=y
+CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_0=y
+CONFIG_ESP_WIFI_IRAM_OPT=y
+CONFIG_ESP_WIFI_RX_IRAM_OPT=y
+CONFIG_ESP_WIFI_ENABLE_WPA3_SAE=y
+CONFIG_ESP_WIFI_STA_DISCONNECTED_PM_ENABLE=y
+
+# Disable SoftAP to save memory (not needed for this project)
+# CONFIG_ESP_WIFI_SOFTAP_SUPPORT is not set
+
+# -----------------------------------------------------------------------------
+# LWIP Network Stack
+# Optimized for MQTT traffic patterns
+# -----------------------------------------------------------------------------
+CONFIG_LWIP_LOCAL_HOSTNAME="victron-monitor"
+CONFIG_LWIP_MAX_SOCKETS=10
+CONFIG_LWIP_SO_REUSE=y
+CONFIG_LWIP_SO_REUSE_RXTOALL=y
+CONFIG_LWIP_IP_DEFAULT_TTL=64
+CONFIG_LWIP_TCPIP_RECVMBOX_SIZE=32
+CONFIG_LWIP_DHCP_DOES_ARP_CHECK=y
+
+# TCP optimizations for MQTT
+CONFIG_LWIP_MAX_ACTIVE_TCP=16
+CONFIG_LWIP_MAX_LISTENING_TCP=16
+CONFIG_LWIP_TCP_HIGH_SPEED_RETRANSMISSION=y
+CONFIG_LWIP_TCP_MSS=1440
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=5760
+CONFIG_LWIP_TCP_WND_DEFAULT=5760
+CONFIG_LWIP_TCP_QUEUE_OOSEQ=y
+
+# Disable IPv6 (not needed for local MQTT)
+# CONFIG_LWIP_IPV6 is not set
+
+# Disable DHCP server (not needed)
+# CONFIG_LWIP_DHCPS is not set
+
+# -----------------------------------------------------------------------------
+# MQTT Configuration
+# Optimized for Victron MQTT protocol
+# -----------------------------------------------------------------------------
+CONFIG_MQTT_PROTOCOL_311=y
+# Disable SSL/WebSocket (local network, plain MQTT)
+# CONFIG_MQTT_TRANSPORT_SSL is not set
+# CONFIG_MQTT_TRANSPORT_WEBSOCKET is not set
+# Enable custom MQTT configuration for memory optimization
+CONFIG_MQTT_USE_CUSTOM_CONFIG=y
+# Use PSRAM for MQTT task stacks (we have 8MB available)
+CONFIG_MQTT_TASK_STACK_SIZE=4096
+# Pin MQTT tasks to core 1 to balance load with WiFi on core 0
+CONFIG_MQTT_TASK_CORE_SELECTION_ENABLED=y
+CONFIG_MQTT_USE_CORE_1=y
+
+# -----------------------------------------------------------------------------
+# LVGL Configuration
+# Optimized for 600x450 AMOLED @ 24-bit color
+# -----------------------------------------------------------------------------
+# 24-bit color depth for full AMOLED color range
+CONFIG_LV_COLOR_DEPTH_24=y
+CONFIG_LV_COLOR_DEPTH=24
+
+# Memory: 64KB internal + PSRAM overflow
+CONFIG_LV_MEM_SIZE_KILOBYTES=64
+
+# FreeRTOS integration
+CONFIG_LV_OS_FREERTOS=y
+CONFIG_LV_USE_FREERTOS_TASK_NOTIFY=y
+
+# Display settings (~30fps target, can go higher if needed)
+CONFIG_LV_DEF_REFR_PERIOD=33
+# DPI for 600x450 on 2.41" (~265 PPI actual, using 130 for UI scaling)
+CONFIG_LV_DPI_DEF=130
+
+# Dark theme (AMOLED-optimized - true blacks save power)
+CONFIG_LV_USE_THEME_DEFAULT=y
+CONFIG_LV_THEME_DEFAULT_DARK=y
+CONFIG_LV_THEME_DEFAULT_GROW=y
+CONFIG_LV_THEME_DEFAULT_TRANSITION_TIME=80
+
+# Font configuration (project uses 14, 16, 18, 20, 22)
+CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_FONT_MONTSERRAT_16=y
+CONFIG_LV_FONT_MONTSERRAT_18=y
+CONFIG_LV_FONT_MONTSERRAT_20=y
+CONFIG_LV_FONT_MONTSERRAT_22=y
+CONFIG_LV_FONT_DEFAULT_MONTSERRAT_14=y
+
+# Enable style cache for performance
+CONFIG_LV_OBJ_STYLE_CACHE=y
+
+# Widgets needed for status dashboard
+CONFIG_LV_USE_LABEL=y
+CONFIG_LV_USE_LED=y
+CONFIG_LV_USE_BAR=y
+CONFIG_LV_USE_ARC=y
+CONFIG_LV_USE_BUTTON=y
+CONFIG_LV_USE_CHART=y
+CONFIG_LV_USE_SLIDER=y
+CONFIG_LV_USE_SWITCH=y
+CONFIG_LV_USE_SPINNER=y
+CONFIG_LV_USE_IMAGE=y
+
+# Layouts
+CONFIG_LV_USE_FLEX=y
+CONFIG_LV_USE_GRID=y
+
+# Rendering - support RGB888 for 24-bit AMOLED
+CONFIG_LV_USE_DRAW_SW=y
+CONFIG_LV_DRAW_SW_SUPPORT_RGB565=y
+CONFIG_LV_DRAW_SW_SUPPORT_RGB888=y
+CONFIG_LV_DRAW_SW_COMPLEX=y
+
+# Disable unused widgets to save flash
+# CONFIG_LV_USE_CALENDAR is not set
+# CONFIG_LV_USE_KEYBOARD is not set
+# CONFIG_LV_USE_TEXTAREA is not set
+# CONFIG_LV_USE_DROPDOWN is not set
+# CONFIG_LV_USE_ROLLER is not set
+# CONFIG_LV_USE_TABLE is not set
+# CONFIG_LV_USE_TABVIEW is not set
+# CONFIG_LV_USE_TILEVIEW is not set
+# CONFIG_LV_USE_WIN is not set
+# CONFIG_LV_USE_MENU is not set
+# CONFIG_LV_USE_MSGBOX is not set
+# CONFIG_LV_USE_ANIMIMG is not set
+# CONFIG_LV_USE_CANVAS is not set
+# CONFIG_LV_USE_CHECKBOX is not set
+# CONFIG_LV_USE_IMAGEBUTTON is not set
+# CONFIG_LV_USE_LIST is not set
+# CONFIG_LV_USE_SPINBOX is not set
+# CONFIG_LV_USE_SPAN is not set
+# CONFIG_LV_USE_ARCLABEL is not set
+# CONFIG_LV_USE_SCALE is not set
+# CONFIG_LV_USE_BUTTONMATRIX is not set
+# CONFIG_LV_USE_LINE is not set
+
+# Disable LVGL examples and demos
+# CONFIG_LV_BUILD_EXAMPLES is not set
+# CONFIG_LV_BUILD_DEMOS is not set
+
+# -----------------------------------------------------------------------------
+# Touch Configuration
+# FT6336U capacitive touch controller
+# -----------------------------------------------------------------------------
+CONFIG_ESP_LCD_TOUCH_MAX_POINTS=5
+
+# -----------------------------------------------------------------------------
+# Console and Logging
+# USB Serial/JTAG for debugging
+# -----------------------------------------------------------------------------
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_SECONDARY_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
+
+# Log level: INFO for production (can change to DEBUG for development)
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_LOG_DEFAULT_LEVEL=3
+CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y
+CONFIG_BOOTLOADER_LOG_LEVEL=2
+
+# -----------------------------------------------------------------------------
+# Power Management (for future battery operation)
+# -----------------------------------------------------------------------------
+CONFIG_PM_POWER_DOWN_CPU_IN_LIGHT_SLEEP=y
+CONFIG_ESP_SLEEP_FLASH_LEAKAGE_WORKAROUND=y
+CONFIG_ESP_SLEEP_PSRAM_LEAKAGE_WORKAROUND=y
+
+# -----------------------------------------------------------------------------
+# Watchdog Configuration
+# -----------------------------------------------------------------------------
+CONFIG_ESP_INT_WDT=y
+CONFIG_ESP_INT_WDT_TIMEOUT_MS=300
+CONFIG_ESP_TASK_WDT_EN=y
+CONFIG_ESP_TASK_WDT_INIT=y
+CONFIG_ESP_TASK_WDT_TIMEOUT_S=5
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=y
+CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=y
+
+# -----------------------------------------------------------------------------
+# Security (minimal for local network device)
+# Keep mbedTLS enabled but minimize certificate bundle
+# -----------------------------------------------------------------------------
+# CONFIG_MBEDTLS_SSL_PROTO_TLS1_3 is not set
+# CONFIG_MBEDTLS_SSL_PROTO_DTLS is not set
+# Use minimal certificate bundle (required for TLS but we can minimize)
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_CMN=y
+
+# -----------------------------------------------------------------------------
+# GPIO and Peripheral Configuration
+# IRAM placement for critical interrupt handlers
+# -----------------------------------------------------------------------------
+CONFIG_GPIO_CTRL_FUNC_IN_IRAM=y
+CONFIG_SPI_MASTER_ISR_IN_IRAM=y
+CONFIG_I2C_MASTER_ISR_HANDLER_IN_IRAM=y
+CONFIG_GDMA_CTRL_FUNC_IN_IRAM=y
+CONFIG_GDMA_ISR_HANDLER_IN_IRAM=y
+
+# -----------------------------------------------------------------------------
+# NVS Configuration
+# For WiFi credentials and settings storage
+# -----------------------------------------------------------------------------
+# CONFIG_NVS_ENCRYPTION is not set
+
+# -----------------------------------------------------------------------------
+# Brownout Detection
+# Level 7 (highest) for stable operation
+# -----------------------------------------------------------------------------
+CONFIG_ESP_BROWNOUT_DET=y
+CONFIG_ESP_BROWNOUT_DET_LVL_SEL_7=y
+CONFIG_ESP_BROWNOUT_DET_LVL=7
+
+# -----------------------------------------------------------------------------
+# Main Task Configuration
+# Increased stack for LVGL initialization
+# -----------------------------------------------------------------------------
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=4096
+CONFIG_ESP_MAIN_TASK_AFFINITY_CPU0=y

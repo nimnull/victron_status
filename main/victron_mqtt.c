@@ -2,6 +2,7 @@
 #include "victron_data.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "cJSON.h"
 #include <string.h>
 
 static const char *TAG = "victron_mqtt";
@@ -41,47 +42,57 @@ static victron_mqtt_instance_t mqtt_instances[VICTRON_SYSTEM_MAX] = {
 static mqtt_data_callback_t data_callback = NULL;
 
 /**
- * @brief Parse AC grid status from JSON payload
+ * @brief Parse AC grid status from JSON payload using cJSON
  */
 static void parse_ac_grid_status(victron_system_id_t system_id, const char *topic, const char *data, int data_len)
 {
     // Check if this is the AC grid connected topic
-    if (strstr(topic, "/Ac/ActiveIn/Connected") != NULL) {
-        // Simple parsing for JSON {"value": 0} or {"value": 1}
-        const char *value_str = strstr(data, "\"value\"");
-        if (value_str) {
-            const char *colon = strchr(value_str, ':');
-            if (colon) {
-                colon++;
-                while (*colon == ' ' || *colon == '\t') {
-                    colon++;
-                }
-
-                bool connected = false;
-
-                // Check for numeric value (0 or 1) or boolean (true/false)
-                if (*colon == '1' || strncmp(colon, "true", 4) == 0) {
-                    connected = true;
-                } else if (*colon == '0' || strncmp(colon, "false", 5) == 0) {
-                    connected = false;
-                } else if (*colon == '"') {
-                    // String value "1" or "0"
-                    colon++;
-                    if (*colon == '1') {
-                        connected = true;
-                    }
-                }
-
-                // Update the global status for this system
-                victron_data_update_grid_status(system_id, connected);
-
-                ESP_LOGI(TAG, "System %d AC Grid Status: %s",
-                         system_id, connected ? "Connected" : "Disconnected");
-            }
-        } else {
-            ESP_LOGW(TAG, "Failed to find 'value' field in JSON payload for system %d", system_id);
-        }
+    if (strstr(topic, "/Ac/ActiveIn/Connected") == NULL) {
+        return;
     }
+
+    // Create null-terminated copy for cJSON (data may not be null-terminated)
+    char *json_str = strndup(data, data_len);
+    if (json_str == NULL) {
+        ESP_LOGE(TAG, "Failed to allocate memory for JSON parsing");
+        return;
+    }
+
+    cJSON *root = cJSON_Parse(json_str);
+    free(json_str);
+
+    if (root == NULL) {
+        const char *error_ptr = cJSON_GetErrorPtr();
+        ESP_LOGW(TAG, "JSON parse error for system %d: %s", system_id,
+                 error_ptr ? error_ptr : "unknown");
+        return;
+    }
+
+    cJSON *value = cJSON_GetObjectItemCaseSensitive(root, "value");
+    if (value == NULL) {
+        ESP_LOGW(TAG, "No 'value' field in JSON payload for system %d", system_id);
+        cJSON_Delete(root);
+        return;
+    }
+
+    bool connected = false;
+
+    if (cJSON_IsNumber(value)) {
+        // Numeric value: 0 = disconnected, non-zero = connected
+        connected = (value->valueint != 0);
+    } else {
+        ESP_LOGW(TAG, "Unexpected 'value' type in JSON for system %d", system_id);
+        cJSON_Delete(root);
+        return;
+    }
+
+    cJSON_Delete(root);
+
+    // Update the global status for this system
+    victron_data_update_grid_status(system_id, connected);
+
+    ESP_LOGI(TAG, "System %d AC Grid Status: %s",
+             system_id, connected ? "Connected" : "Disconnected");
 }
 
 /**
@@ -122,7 +133,13 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 
     case MQTT_EVENT_DISCONNECTED:
         instance->state = MQTT_STATE_DISCONNECTED;
-        ESP_LOGI(TAG, "System %s: MQTT Disconnected", instance->system_name);
+        ESP_LOGI(TAG, "System %s: MQTT Disconnected, attempting reconnect...", instance->system_name);
+        // Trigger reconnection attempt
+        esp_err_t err = esp_mqtt_client_reconnect(client);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "System %s: Reconnect request failed: %s",
+                     instance->system_name, esp_err_to_name(err));
+        }
         break;
 
     case MQTT_EVENT_DATA:
@@ -150,51 +167,58 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     }
 }
 
+esp_err_t mqtt_client_init(victron_system_id_t system_id) {
+    victron_mqtt_instance_t *instance = &mqtt_instances[system_id];
+
+    ESP_LOGI(TAG, "Initializing MQTT client for system %s", instance->system_name);
+    ESP_LOGI(TAG, "  Broker: %s", instance->broker_url);
+    ESP_LOGI(TAG, "  System ID: %s", instance->victron_id);
+
+    const esp_mqtt_client_config_t mqtt_cfg = {
+        .broker = {
+            .address.uri = instance->broker_url,
+        },
+        .session = {
+            .keepalive = 60,
+            .disable_clean_session = false,
+        },
+        .network = {
+            .reconnect_timeout_ms = 10000,
+            .timeout_ms = 10000,
+        },
+    };
+
+    instance->client = esp_mqtt_client_init(&mqtt_cfg);
+    if (instance->client == NULL) {
+        ESP_LOGE(TAG, "Failed to initialize MQTT client for system %s", instance->system_name);
+        return ESP_FAIL;
+    }
+
+    esp_err_t ret = esp_mqtt_client_register_event(instance->client, ESP_EVENT_ANY_ID,
+                                                    mqtt_event_handler, NULL);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to register MQTT event handler for system %s: %s",
+                    instance->system_name, esp_err_to_name(ret));
+        esp_mqtt_client_destroy(instance->client);
+        instance->client = NULL;
+        return ret;
+    }
+    return ret;
+}
+
 esp_err_t victron_mqtt_init(void)
 {
     ESP_LOGI(TAG, "Initializing MQTT clients for both systems...");
 
     for (int i = 0; i < VICTRON_SYSTEM_MAX; i++) {
-        victron_mqtt_instance_t *instance = &mqtt_instances[i];
-
-        ESP_LOGI(TAG, "Initializing MQTT client for system %s", instance->system_name);
-        ESP_LOGI(TAG, "  Broker: %s", instance->broker_url);
-        ESP_LOGI(TAG, "  System ID: %s", instance->victron_id);
-
-        const esp_mqtt_client_config_t mqtt_cfg = {
-            .broker = {
-                .address.uri = instance->broker_url,
-            },
-            .session = {
-                .keepalive = 60,
-                .disable_clean_session = false,
-            },
-            .network = {
-                .reconnect_timeout_ms = 10000,
-                .timeout_ms = 10000,
-            },
-        };
-
-        instance->client = esp_mqtt_client_init(&mqtt_cfg);
-        if (instance->client == NULL) {
-            ESP_LOGE(TAG, "Failed to initialize MQTT client for system %s", instance->system_name);
-            return ESP_FAIL;
-        }
-
-        esp_err_t ret = esp_mqtt_client_register_event(instance->client, ESP_EVENT_ANY_ID,
-                                                       mqtt_event_handler, NULL);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to register MQTT event handler for system %s: %s",
-                     instance->system_name, esp_err_to_name(ret));
-            esp_mqtt_client_destroy(instance->client);
-            instance->client = NULL;
-            return ret;
-        }
+        
+        mqtt_client_init((victron_system_id_t)i);
     }
 
     ESP_LOGI(TAG, "All MQTT clients initialized successfully");
     return ESP_OK;
 }
+
 
 esp_err_t victron_mqtt_start(victron_system_id_t system_id)
 {

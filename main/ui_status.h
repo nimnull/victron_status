@@ -3,6 +3,7 @@
 
 #include "lvgl.h"
 #include "esp_err.h"
+#include "victron_data.h"
 
 /**
  * @brief Create the status display UI
@@ -33,5 +34,14 @@ void ui_status_update_wifi(bool connected);
  * @param connected true if MQTT is connected, false otherwise
  */
 void ui_status_update_mqtt(bool connected);
+
+/**
+ * @brief Blink MQTT LED to indicate data received
+ *
+ * Briefly increases LED brightness to 255 then returns to normal.
+ *
+ * @param system_id System identifier (VICTRON_SYSTEM_1 or VICTRON_SYSTEM_2)
+ */
+void ui_status_blink_mqtt_led(victron_system_id_t system_id);
 
 #endif // UI_STATUS_H

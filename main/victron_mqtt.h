@@ -100,4 +100,6 @@ esp_err_t victron_mqtt_send_keepalive(victron_system_id_t system_id);
  */
 esp_err_t victron_mqtt_send_keepalive_all(void);
 
+esp_err_t mqtt_client_init(victron_system_id_t system_id);
+
 #endif // VICTRON_MQTT_H

@@ -1,5 +1,17 @@
-# Name,   Type, SubType, Offset,  Size, Flags
-# Note: if you have increased the bootloader size, make sure to update the offsets to avoid overlap
-nvs,      data, nvs,     0x9000,  0x6000,
-phy_init, data, phy,     0xf000,  0x1000,
-factory,  app,  factory, 0x10000, 0x200000,
+# Victron Multi-System Monitor Partition Table
+# Target: ESP32-S3 with 16MB Flash
+# =============================================================================
+# Name,      Type, SubType,  Offset,    Size,    Flags
+# -----------------------------------------------------------------------------
+# NVS for WiFi credentials, MQTT settings, calibration data
+nvs,         data, nvs,      0x9000,    0x6000,
+# PHY calibration data
+phy_init,    data, phy,      0xf000,    0x1000,
+# Main application (4MB - plenty for LVGL + MQTT + WiFi)
+factory,     app,  factory,  0x10000,   0x400000,
+# Storage partition for future use (historical data, SD card cache)
+storage,     data, spiffs,   0x410000,  0x100000,
+# OTA partition for future firmware updates
+ota_0,       app,  ota_0,    0x510000,  0x400000,
+# Coredump partition for crash analysis
+coredump,    data, coredump, 0x910000,  0x10000,

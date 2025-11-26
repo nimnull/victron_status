@@ -6,6 +6,13 @@
 *.old
 build
 managed_components
+
+# Secrets - credentials file (copy secrets.txt.example to secrets.txt)
+main/secrets.txt
+sdkconfig.defaults.secrets
+
+# User-specific configuration (may contain sensitive values)
+sdkconfig
 # Prerequisites
 *.d
 

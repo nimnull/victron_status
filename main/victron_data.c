@@ -1,4 +1,5 @@
 #include "victron_data.h"
+#include "ui_status.h"
 #include "esp_log.h"
 
 static const char *TAG = "victron_data";
@@ -49,6 +50,9 @@ void victron_data_update_grid_status(victron_system_id_t system_id, bool connect
         g_victron_data.systems[system_id].ac_grid_connected = connected;
         g_victron_data.systems[system_id].last_update = time(NULL);
         xSemaphoreGive(g_victron_data.data_mutex);
+
+        // Blink the MQTT LED to indicate data received
+        ui_status_blink_mqtt_led(system_id);
 
         ESP_LOGI(TAG, "System %s grid status updated: %s",
                  g_victron_data.systems[system_id].system_name,

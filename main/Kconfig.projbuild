@@ -1,28 +1,35 @@
 menu "Victron MQTT Configuration"
+    # Note: Actual values are loaded from main/secrets.txt via CMake at build time.
+    # The defaults here are placeholders - copy secrets.txt.example to secrets.txt
+
     config WIFI_SSID
         string "WiFi SSID"
-        default "YourWiFiNetwork"
+        default "your_wifi_ssid"
         help
             WiFi network name to connect to.
+            Set via main/secrets.txt file.
 
     config WIFI_PASSWORD
         string "WiFi Password"
-        default "YourPassword"
+        default "your_wifi_password"
         help
             WiFi network password.
+            Set via main/secrets.txt file.
 
     menu "System 1 Configuration"
         config MQTT_BROKER_URL_1
             string "MQTT Broker URL for System 1"
-            default "mqtt://192.168.125.10:1883"
+            default "mqtt://192.168.1.10:1883"
             help
                 URL of the MQTT broker for System 1. Format: mqtt://IP:PORT
+                Set via main/secrets.txt file.
 
         config VICTRON_SYSTEM_ID_1
             string "Victron System ID 1"
-            default "c0619ab40108"
+            default "your_system_id_1"
             help
                 Victron system ID for first system MQTT topic subscription.
+                Set via main/secrets.txt file.
 
         config VICTRON_SYSTEM_NAME_1
             string "System 1 Name"
@@ -34,15 +41,17 @@ menu "Victron MQTT Configuration"
     menu "System 2 Configuration"
         config MQTT_BROKER_URL_2
             string "MQTT Broker URL for System 2"
-            default "mqtt://192.168.125.11:1883"
+            default "mqtt://192.168.1.11:1883"
             help
                 URL of the MQTT broker for System 2. Format: mqtt://IP:PORT
+                Set via main/secrets.txt file.
 
         config VICTRON_SYSTEM_ID_2
             string "Victron System ID 2"
-            default "c0619ab40109"
+            default "your_system_id_2"
             help
                 Victron system ID for second system MQTT topic subscription.
+                Set via main/secrets.txt file.
 
         config VICTRON_SYSTEM_NAME_2
             string "System 2 Name"

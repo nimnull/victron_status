@@ -32,6 +32,7 @@
 #include "victron_mqtt.h"
 #include "victron_data.h"
 #include "ui_status.h"
+#include "screen_timeout.h"
 
 #define Rotate_90    0
 #define Rotate_NONO  1
@@ -88,6 +89,8 @@ esp_lcd_touch_handle_t tp = NULL;
 static const char *TAG = "example";
 static SemaphoreHandle_t lvgl_mux = NULL;
 static esp_timer_handle_t keepalive_timer = NULL;
+static esp_lcd_panel_handle_t s_panel_handle = NULL;
+static lv_display_t *s_display = NULL;
 
 static const sh8601_lcd_init_cmd_t lcd_init_cmds[] = {
 
@@ -155,6 +158,8 @@ static void example_lvgl_port_task(void *arg)
         // Lock the mutex due to the LVGL APIs are not thread-safe
         if (example_lvgl_lock(-1)) {
             task_delay_ms = lv_timer_handler();
+            // Check screen timeout (already under LVGL mutex)
+            screen_timeout_check();
             // Release the mutex
             example_lvgl_unlock();
         }
@@ -244,9 +249,14 @@ static void example_lvgl_touch_cb(lv_indev_t * indev, lv_indev_data_t * data)
     ESP_ERROR_CHECK(esp_lcd_touch_read_data(tp));
     /* Read data from touch controller */
     bool tp_pressed = esp_lcd_touch_get_coordinates(tp, &tp_x, &tp_y, NULL, &tp_cnt, 1);
-    if (tp_pressed && tp_cnt > 0) {
-        data->point.x = tp_x ;
-        data->point.y = tp_y ;
+    bool is_pressed = tp_pressed && tp_cnt > 0;
+
+    /* Process through screen timeout - may consume touch for wake */
+    bool pass_to_ui = screen_timeout_process_touch(is_pressed);
+
+    if (is_pressed && pass_to_ui) {
+        data->point.x = tp_x;
+        data->point.y = tp_y;
         data->state = LV_INDEV_STATE_PRESSED;
         ESP_LOGD(TAG, "Touch position: %d,%d", tp_x, tp_y);
     } else {
@@ -305,7 +315,8 @@ void init_touch(void) {
 void app_main(void)
 {
     lv_init();
-    lv_display_t *display1 = lv_display_create(LCD_H_RES, LCD_V_RES);
+    s_display = lv_display_create(LCD_H_RES, LCD_V_RES);
+    lv_display_t *display1 = s_display;  // Keep local alias for existing code
 
     const spi_bus_config_t buscfg = SH8601_PANEL_BUS_QSPI_CONFIG(PIN_NUM_LCD_PCLK,
                                                                  PIN_NUM_LCD_DATA0,
@@ -342,6 +353,7 @@ void app_main(void)
 
     ESP_LOGI(TAG, "Install SH8601 panel driver");
     ESP_ERROR_CHECK(esp_lcd_new_panel_sh8601(io_handle, &panel_config, &panel_handle));
+    s_panel_handle = panel_handle;  // Store for screen timeout module
     ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_handle));
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel_handle));
     // user can flush pre-defined pattern to the screen before we turn on the screen or backlight
@@ -349,9 +361,10 @@ void app_main(void)
 
     // alloc draw buffers used by LVGL
     // it's recommended to choose the size of the draw buffer(s) to be at least 1/10 screen sized
-    lv_color_t *buf1 = heap_caps_malloc(LCD_H_RES * LVGL_BUF_HEIGHT * sizeof(lv_color_t), MALLOC_CAP_DMA);
+    // Use PSRAM to free internal SRAM for WiFi (162KB saved)
+    lv_color_t *buf1 = heap_caps_malloc(LCD_H_RES * LVGL_BUF_HEIGHT * sizeof(lv_color_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     assert(buf1);
-    lv_color_t *buf2 = heap_caps_malloc(LCD_H_RES * LVGL_BUF_HEIGHT * sizeof(lv_color_t), MALLOC_CAP_DMA);
+    lv_color_t *buf2 = heap_caps_malloc(LCD_H_RES * LVGL_BUF_HEIGHT * sizeof(lv_color_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     assert(buf2);
     // initialize LVGL draw buffers
 #if LCD_BIT_PER_PIXEL == 24
@@ -376,12 +389,14 @@ void app_main(void)
 #if EXAMPLE_USE_TOUCH
     init_touch();
 
-    lv_indev_t * indev = lv_indev_create(); 
+    lv_indev_t * indev = lv_indev_create();
     lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(indev, example_lvgl_touch_cb);
     lv_indev_set_driver_data(indev, tp);
 #endif
 
+    // Initialize screen timeout module
+    ESP_ERROR_CHECK(screen_timeout_init(s_display, s_panel_handle));
 
     lvgl_mux = xSemaphoreCreateMutex();
     assert(lvgl_mux);
@@ -412,9 +427,9 @@ void app_main(void)
 
     // Initialize and start MQTT clients for both systems
     ESP_LOGI(TAG, "Initializing MQTT clients for both systems...");
-    ESP_ERROR_CHECK(victron_mqtt_init());
+    ESP_ERROR_CHECK_WITHOUT_ABORT(victron_mqtt_init());
 
-    ESP_ERROR_CHECK(victron_mqtt_start_all());
+    ESP_ERROR_CHECK_WITHOUT_ABORT(victron_mqtt_start_all());
     ESP_LOGI(TAG, "MQTT clients started successfully for both systems");
 
     // Wait a bit for MQTT to connect
@@ -447,7 +462,6 @@ void app_main(void)
     } else {
         ESP_LOGE(TAG, "Failed to create keepalive timer: %s", esp_err_to_name(ret));
     }
-
 
     printf("Victron MQTT Monitor initialized!\n");
 
